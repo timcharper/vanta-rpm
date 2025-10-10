@@ -1,0 +1,112 @@
+Name:           vanta
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Vanta security monitoring tool for Linux
+License:        unknown
+URL:            https://vanta.com
+BuildArch:      x86_64
+Requires:       systemd
+
+%description
+Vanta security tool for Linux. Provides security monitoring and compliance
+capabilities for enterprise systems.
+
+%prep
+# No prep needed - using extracted files
+
+%build
+# No build needed - binaries already compiled
+
+%install
+rm -rf %{buildroot}
+
+# Create directory structure
+mkdir -p %{buildroot}/etc
+mkdir -p %{buildroot}/etc/init.d
+mkdir -p %{buildroot}/var/vanta
+mkdir -p %{buildroot}/usr/lib/systemd/system
+
+# Copy files
+cp -a %{_sourcedir}/assets/etc/vanta.conf %{buildroot}/etc/
+cp -a %{_sourcedir}/assets/etc/init.d/vanta %{buildroot}/etc/init.d/
+cp -a %{_sourcedir}/assets/var/vanta/* %{buildroot}/var/vanta/
+cp -a %{_sourcedir}/assets/usr/lib/systemd/system/vanta.service %{buildroot}/usr/lib/systemd/system/
+
+%files
+%config(noreplace) /etc/vanta.conf
+/etc/init.d/vanta
+/usr/lib/systemd/system/vanta.service
+%attr(755, root, root) /var/vanta/metalauncher
+%attr(755, root, root) /var/vanta/launcher
+%attr(755, root, root) /var/vanta/osquery-vanta.ext
+%attr(755, root, root) /var/vanta/osqueryd
+%attr(755, root, root) /var/vanta/vanta-cli
+/var/vanta/cert.pem
+
+%post
+# Environment variables:
+# VANTA_KEY (the Vanta per-domain secret key)
+# VANTA_NOSTART (if true, then don't start the service upon installation.)
+
+VANTA_CONF_PATH="/etc/vanta.conf"
+
+if [ -z "$VANTA_KEY" ];
+  then echo "VANTA_KEY not specified; ignoring all Vanta-specific environment variables."
+else
+  # VANTA_KEY is specified; override default conf with environment variables!
+  if [ -z "$VANTA_OWNER_EMAIL" ];
+  then
+    echo "VANTA_OWNER_EMAIL not specified; ignoring all Vanta-specific environment variables"
+  else
+    # Only request activation when explicitly installing. Here, it's equivalent
+    # to creating the config.
+    ACTIVATION_REQUESTED_NONCE=$(date +%s%3N)
+    CONFIG="{\"ACTIVATION_REQUESTED_NONCE\":$ACTIVATION_REQUESTED_NONCE,\"AGENT_KEY\":\"$VANTA_KEY\",\"OWNER_EMAIL\":\"$VANTA_OWNER_EMAIL\",\"REGION\":\"$VANTA_REGION\",\"NEEDS_OWNER\":true}"
+  fi
+  echo "$CONFIG" > "$VANTA_CONF_PATH"
+fi
+
+# lock down vanta conf
+/bin/chmod 600 "$VANTA_CONF_PATH"
+/usr/bin/chown root:root "$VANTA_CONF_PATH"
+
+# Set SELinux contexts for executables
+if command -v semanage &> /dev/null; then
+  semanage fcontext -a -t bin_t '/var/vanta/.*' 2>/dev/null || true
+  restorecon -Rv /var/vanta/
+elif command -v restorecon &> /dev/null; then
+  restorecon -Rv /var/vanta/
+fi
+
+# If SELinux is still blocking, you may need to allow the domain
+if command -v chcon &> /dev/null; then
+  chcon -t bin_t /var/vanta/metalauncher /var/vanta/launcher /var/vanta/osqueryd /var/vanta/osquery-vanta.ext /var/vanta/vanta-cli 2>/dev/null || true
+fi
+
+# Enable and start service with systemd
+systemctl daemon-reload
+systemctl enable vanta.service
+
+if [ -z "$VANTA_NOSTART" ]; then
+  systemctl restart vanta.service
+else
+  echo "Did not start Vanta service. To start, run \"systemctl start vanta.service\""
+fi
+
+%preun
+if [ $1 -eq 0 ] ; then
+  # Package removal, not upgrade
+  systemctl stop vanta.service 2>/dev/null || true
+  systemctl disable vanta.service 2>/dev/null || true
+fi
+
+%postun
+if [ $1 -eq 0 ] ; then
+  # Package removal, not upgrade
+  /bin/rm -rf /var/vanta
+  /bin/rm -f /usr/local/bin/vanta-cli
+fi
+
+%changelog
+* Fri Oct 10 2025 Builder <builder@localhost> - @VERSION@-1
+- Initial RPM package built from DEB package

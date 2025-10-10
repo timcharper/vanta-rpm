@@ -1,0 +1,9 @@
+# Build artifacts
+target/
+assets/
+rpmbuild/
+
+# Generated files
+vanta.spec
+
+.envrc
