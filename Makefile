@@ -1,12 +1,11 @@
-.PHONY: all clean rpm build extract version
+.PHONY: all clean rpm download extract version
 
 # Variables
-IMAGE_NAME := vanta-builder
 TARGET_DIR := target
 ASSETS_DIR := assets
 RPMBUILD_DIR := rpmbuild
 VERSION_FILE := $(TARGET_DIR)/version
-IMAGE_BUILT := $(TARGET_DIR)/image-built
+DEB_FILE := $(TARGET_DIR)/vanta-amd64.deb
 SPEC_TEMPLATE := vanta.spec.template
 SPEC_FILE := vanta.spec
 
@@ -16,18 +15,27 @@ all: rpm
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
 
-# Build the container image
-$(IMAGE_BUILT): Dockerfile | $(TARGET_DIR)
-	podman build -t $(IMAGE_NAME) .
-	touch $(IMAGE_BUILT)
+# Download the Debian package
+$(DEB_FILE): | $(TARGET_DIR)
+	curl --progress-bar -L https://app.vanta.com/osquery/download/linux -o $(DEB_FILE)
 
-build: $(IMAGE_BUILT)
+download: $(DEB_FILE)
 
-# Extract assets from the container
-$(ASSETS_DIR): $(IMAGE_BUILT)
+# Extract assets from the Debian package using bsdtar
+$(ASSETS_DIR): $(DEB_FILE)
 	mkdir -p $(ASSETS_DIR)
-	podman run --rm -v $(PWD)/$(ASSETS_DIR):/$(ASSETS_DIR):Z --userns=keep-id -u "$$(id -u):$$(id -g)" $(IMAGE_NAME) \
-		bash -c "dpkg-deb -x /tmp/vanta-amd64.deb /$(ASSETS_DIR); dpkg-deb -e /tmp/vanta-amd64.deb /$(ASSETS_DIR)/DEBIAN"
+	bsdtar -Oxf $(DEB_FILE) 'data.tar.gz' | \
+		bsdtar -xf - \
+			--exclude='./usr/share/doc' \
+			-C $(ASSETS_DIR)
+	bsdtar -Oxf $(DEB_FILE) 'control.tar.gz' | bsdtar -xf - -C $(ASSETS_DIR)
+	mkdir -p $(ASSETS_DIR)/DEBIAN
+	mv $(ASSETS_DIR)/control $(ASSETS_DIR)/DEBIAN/control
+	mv $(ASSETS_DIR)/md5sums $(ASSETS_DIR)/DEBIAN/md5sums
+	mv $(ASSETS_DIR)/postinst $(ASSETS_DIR)/DEBIAN/postinst
+	mv $(ASSETS_DIR)/postrm $(ASSETS_DIR)/DEBIAN/postrm
+	mv $(ASSETS_DIR)/prerm $(ASSETS_DIR)/DEBIAN/prerm
+	mv $(ASSETS_DIR)/conffiles $(ASSETS_DIR)/DEBIAN/conffiles
 
 extract: $(ASSETS_DIR)
 
@@ -65,7 +73,6 @@ rpm: $(SPEC_FILE)
 # Clean build artifacts
 clean:
 	rm -rf $(TARGET_DIR) $(ASSETS_DIR) $(RPMBUILD_DIR) $(SPEC_FILE)
-	podman rmi $(IMAGE_NAME) 2>/dev/null || true
 
 # Clean everything including extracted directory (legacy)
 distclean: clean
