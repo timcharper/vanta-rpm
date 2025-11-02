@@ -4,8 +4,9 @@ Build an RPM package for the Vanta security monitoring agent.
 
 ## Prerequisites
 
-- **podman** or **docker**
 - **rpmbuild**: `sudo dnf install rpm-build`
+- **bsdtar**: `sudo dnf install bsdtar`
+- **make**: `sudo dnf install make`
 
 ## Build
 
