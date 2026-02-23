@@ -28,6 +28,19 @@ With configuration (use `.envrc`):
 sudo -E rpm -ivh rpmbuild/RPMS/x86_64/vanta-*.rpm
 ```
 
+### Regarding SELinux
+
+Vanta will expect all its binaries to be located at `/var/vanta`.
+
+1. After installation, verify the files actually exist. If they're not there, copy over the folder `vanta` located at `vanta-rpm/assets/var/vanta` after having built the rpm.
+2. Modify the SELinux context so the service can see and execute them
+```
+sudo semanage fcontext -a -t bin_t '/var/vanta(/.*)?'
+sudo restorecon -Rv /var/vanta
+```
+3. Verify the key and owner values are populated in `/etc/vanta.conf`
+4. Start and enable the service by running `sudo systemctl enable --now vanta.service`
+
 ## Other Targets
 
 ```bash
